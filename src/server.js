@@ -1,65 +1,186 @@
-const http = require('http');
 const crypto = require("crypto");
-const client = require('./client');
+const net = require("net");
+const fs = require('fs');
+let isFinal = Boolean;
+var clients = [];
 
-const server = http.createServer(client.requestListener);
+const chatHTML = 'index.html';
 
-const port = 3001;
-server.listen(port, () => console.log(`Server running at http://localhost:${port}`));
-server.on('upgrade', (req, socket) => {
-    if (req.headers['upgrade'] !== 'websocket') {
-        socket.end('HTTP/1.1 400 Bad Request');
-        return;
-    }
-    // Read the websocket key provided by the client:
-    const acceptKey = req.headers['sec-websocket-key'];
-    // Generate the response value to use in the response:
-    console.log("første")
-    const hash = generateAcceptValue(acceptKey);
-    console.log("andre")
-    // Write the HTTP response into an array of response lines:
-    const responseHeaders = [ 'HTTP/1.1 101 Web Socket Protocol Handshake', 'Upgrade: WebSocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${hash}` ];
-    console.log("tredje")
-    // Read the sub-protocol from the client request headers:
-    const protocol = req.headers['sec-websocket-protocol'];
-    console.log("femte")
-    // If provided, they'll be formatted as a comma-delimited string of protocol
-    // names that the client supports; we'll need to parse the header value, if
-    // provided, and see what options the client is offering:
-    const protocols = !protocol ? [] : protocol.split(',').map(s => s.trim());
-    console.log("sjette")
-    // To keep it simple, we'll just see if JSON was an option, and if so, include
-    // it in the HTTP response:
-    if (protocols.includes('json')) {
-        // Tell the client that we agree to communicate with JSON data
-        responseHeaders.push(`Sec-WebSocket-Protocol: json`);
-        console.log("syvende")
-    }
-    // Write the response back to the client socket, being sure to append two
-    // additional newlines so that the browser recognises the end of the response
-    // header and doesn't continue to wait for more header data:
-    socket.write(responseHeaders.join('\r\n') + '\r\n\r\n');
-    const buffer = constructReply('response')
-    socket.write(buffer)
-    console.log("åttende")
+const HTTPPORT  = 3001;
+const WSPORT = 3000;
+
+// Simple HTTP server responds with a simple WebSocket client test
+const httpServer = net.createServer((connection) => {
+    connection.on('data', () => {
+        try{
+            fs.readFile(chatHTML, (err, data) => {
+                if(err){
+                    console.log("Error during reading");
+                }
+                connection.write('HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ' + data.length + '\r\n\r\n' + data);
+
+            });
+        }catch(error){
+            console.log("Couldn't open HTML file");
+        }
+    });
 });
 
-socket.on('data', buffer => {
-    const message = parseMessage(buffer);
-    if (message) {
-        // For our convenience, so we can see what the client sent
+httpServer.listen(HTTPPORT, () => {
+    console.log("HTTP server listening on port: " + HTTPPORT);
+});
+
+httpServer.on("error", (error) =>{
+    console.log(error);
+});
+
+const wsServer = net.createServer((connection) => {
+    connection.on('data', (data) => {
+        let string = data.toString();
+    if ((/GET \/ HTTP\//i).test(string)) {
+            if(!checkHeaderFields(string)){
+                connection.write("HTTP/1.1 400 Bad Request\r\n");
+                console.log(string);
+                connection.end();
+            }
+        // Reads key from  client's GET-request
+        let key = getHeaderValue(data, 'Sec-WebSocket-Key');
+        // Creates acceptKey
+        let acceptKey = generateAcceptValue(key);
+
+        // Writes answer with acceptKey to client
+        connection.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n`+
+            `Connection: Upgrade\r\nSec-WebSocket-Accept: ${acceptKey}\r\n\r\n`);
+        // Adds client to an array of clients/sockets
+        clients.push(connection);
+    }
+    else{
+        //Checks opcode for connection closing
+        if((data[0] & 0b1111) === 0x8) {
+            connection.end();
+            return;
+        }
+        // Client message
+        let message = parseMessage(data);
         console.log(message);
-        // We'll just send a hardcoded message in this example
-        socket.write(constructReply({ message: 'Hello from the server!' }));
-    } else if (message === null) {
-        console.log('WebSocket connection closed by the client.');
+        // Finds client index and creates a response
+        let response = "";
+        if((/chat/).test(chatHTML)){
+            for(let i = 0; i < clients.length; i++){
+                if(clients[i] === connection){
+                    response = `Client ${i+1}: ${message}`;
+                }
+            }
+        }
+        else response = message;
+
+        let buf = constructReply(response);
+
+        for(socket of clients){
+            if(socket) socket.write(buf);
+        }
+    }
+    });
+    connection.on('end', () => {
+        for(let i = 0; i < clients.length; i++){
+            if(clients[i] === connection){
+                clients.splice(i);
+            }
+        }
+        console.log("Client disconnected");
+    });
+});
+
+wsServer.on('error', (error) => {
+    console.error('Error: ', error);
+    if (error.code === 'EADDRINUSE') {
+        console.log('Address in use, retrying...');
+        setTimeout(function () {
+            wsServer.close();
+            wsServer.listen(3000, "localhost");
+        }, 1000);
     }
 });
-function constructReply(data) {
-    // TODO: Construct a WebSocket frame Node.js socket buffer
+
+wsServer.on("close", () => {
+    console.log('Client disconnected');
+});
+
+wsServer.listen(WSPORT, () => {
+    console.log('Websocket server listening on port: ', WSPORT);
+});
+
+function parseMessage(data) {
+    let masked = data[1]>>7 === 1;
+    let length, maskStart;
+
+    length = data[1] & 0b1111111;
+
+    maskStart = 2;
+
+    if(length === 126){
+        length = ((data[2] << 8)| data[3]);
+
+        maskStart = 4;
+    }
+    else if(length === 127){
+        length = data[2];
+        for(let i = 3; i<10;i++){
+            length = (length << 8)|data[i];
+        }
+
+        maskStart = 10;
+    }
+    let result = "";
+    if(masked){
+        let dataStart = maskStart + 4;
+        for(let i = dataStart; i< dataStart+length; i++){
+            let byte = data[i] ^ data[maskStart + ((i - dataStart) % 4)]
+            result += String.fromCharCode(byte);
+        }
+    }else{
+        for(let i = maskStart; i<maskStart+length; i++){
+            result += String.fromCharCode(data[i]);
+        }
+    }
+
+    return result;
 }
-function parseMessage(buffer) {
-    // TODO: Parse the WebSocket frame from the Node.js socket buffer
+
+/**
+ * Method decodes the frames sent by the client
+ * %x1 = text frame
+ * %x8 = closing connection
+ * This server will only deal with text, and closing connection,
+ * although binary frames (%x2) would be a good implementation for
+ * images, audio and such (bit-stream)
+ *
+ * @param text consist of the (encoded) frames sent from the client
+ * @return null if connection termination frame, and a decoded message if text frame
+ */
+function constructReply(text) {
+    let textByteLength = Buffer.from(text).length;
+
+    let secondByte, buffer1;
+    if(textByteLength < 126){
+        secondByte = textByteLength;
+        buffer1 = Buffer.from([0b10000001, secondByte]);
+    }
+    else if(textByteLength > 125 && textByteLength < 65535){
+        secondByte = 126;
+        buffer1 = Buffer.alloc(4);
+        buffer1.writeUInt8(0b10000001,0)
+        buffer1.writeUInt8(secondByte,1);
+        buffer1.writeUInt16BE(textByteLength,2);
+    }
+    else {
+        throw Error("Message was too long");
+    }
+
+    const buffer2 = Buffer.from(text);
+
+    const buffer = Buffer.concat([buffer1,buffer2]);
+    return buffer;
 }
 
 // Don't forget the hashing function described earlier:
@@ -70,38 +191,28 @@ function generateAcceptValue (acceptKey) {
         .digest('base64');
 }
 
-function constructReply(data) {
-    // Retrieving the byte-length of data
-    const byteLength = Buffer.byteLength(data);
-    // Note: byte-length > 65535 are not supported (by me)
-    // Explanation:
-    // condition jsonByteLength < 126
-    // if true: lengthByteCount = 0
-    // if false: lengthByteCount = 2
-    const lengthByteCount = byteLength < 126 ? 0 : 2;
+function checkHeaderFields(headers){
+    let connectionReg = /Connection:.+Upgrade.*?\s/i
+    let hostReg = /Host:/i
+    let upgradeReg = /Upgrade:.+websocket.*?\s/i
+    let keyReg = /Sec-WebSocket-Key:/i
+    let versionReg = /Sec-WebSocket-Version: 13\s/i
+    if(connectionReg.test(headers) && hostReg.test(headers) && upgradeReg.test(headers) && keyReg.test(headers) && versionReg.test(headers))
+        return true;
 
-    // Explanation:
-    // condition lengthByteCount === 0
-    // if true: lengthByteCount = jsonByteLength
-    // if false: lengthByteCount = 126
-    const payloadLength = lengthByteCount === 0 ? byteLength : 126;
+    return false;
+}
 
-    // We must allocate enough space in our buffer for payload, payload length AND
-    // the two first bytes w/ FIN-bit, RSV's, MASK-bit etc.
-    const buffer = Buffer.alloc(2 + lengthByteCount + byteLength);
-
-    // Write out the first byte, using opcode `1` to indicate
-    // that the message frame payload contains text data
-    buffer.writeUInt8(0b10000001, 0); // 0b = binary; FIN-bit = 1; OPCODE = 1
-
-    // Write the length of the JSON payload to the second byte
-    buffer.writeUInt8(payloadLength, 1);
-
-    let payloadOffset = 2;
-    if (lengthByteCount > 0) {
-        buffer.writeUInt16BE(byteLength, 2); payloadOffset += lengthByteCount;
+/**
+ * @param data = buffer
+ * @param headerName = name to search for in header-lines
+ */
+function getHeaderValue(data, headerName) {
+    let array = data.toString().split("\r\n");
+    for (let line of array) {
+        let header = line.split(":")
+        if(header[0].trim() === headerName) {
+            return header[1].trim(); // <-- headerValue
+        }
     }
-    // Write the JSON data to the data buffer
-    buffer.write(data, payloadOffset);
-    return buffer;
 }
