@@ -1,7 +1,6 @@
 const crypto = require("crypto");
 const net = require("net");
 const fs = require('fs');
-let isFinal = Boolean;
 var clients = [];
 
 const chatHTML = 'index.html';

@@ -21,6 +21,7 @@
         }
         #message{
             margin-top: 5px;
+            width: 40%;
         }
         #submit{
             margin-top: 10px;
@@ -33,13 +34,14 @@
         }
         #chat{
             width: 40%;
-            border: 3px;
+            border: 3px solid black;
             outline: none;
             border-radius: 5px;
             padding: 10px;
             resize: none;
             font-size: 16px;
             height: 30vh;
+            margin: 10px;
         }
     </style>
 </head>
@@ -47,11 +49,11 @@
 <h1>WebSocket Client</h1>
 <div id="container">
     <form>
-        <label for="message">Write your message to the server:</label>
+        <label for="message">Hey! You have come to a chat program. Feel free to chat with other clients:</label>
+        <div id="chat"></div>
         <input id="message" type="text">
         <button id="submit" type="submit">Submit message</button>
     </form>
-    <textarea id="chat" readonly=true></textarea>
 </div>
 <script>
     window.onload = () => {
@@ -64,9 +66,11 @@
             event.preventDefault();
             let message = document.getElementById("message").value;
             ws.send(message);
+            document.getElementById("message").value = "";
         });
         ws.addEventListener("message", e => {
             console.log(e.data);
+            document.getElementById("chat").innerHTML += e.data +"<br/>";
         })
     }
 </script>
