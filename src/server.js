@@ -8,7 +8,8 @@ const chatHTML = 'index.html';
 const HTTPPORT  = 3001;
 const WSPORT = 3000;
 
-// Simple HTTP server responds with a simple WebSocket client test
+//-----------------------------------CLIENT-----------------------------------
+
 const httpServer = net.createServer((connection) => {
     connection.on('data', () => {
         try{
@@ -17,7 +18,6 @@ const httpServer = net.createServer((connection) => {
                     console.log("Error during reading");
                 }
                 connection.write('HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ' + data.length + '\r\n\r\n' + data);
-
             });
         }catch(error){
             console.log("Couldn't open HTML file");
@@ -33,6 +33,8 @@ httpServer.on("error", (error) =>{
     console.log(error);
 });
 
+//----------------------------------SERVER----------------------------------
+
 const wsServer = net.createServer((connection) => {
     connection.on('data', (data) => {
         let string = data.toString();
@@ -46,7 +48,6 @@ const wsServer = net.createServer((connection) => {
         let key = getHeaderValue(data, 'Sec-WebSocket-Key');
         // Creates acceptKey
         let acceptKey = generateAcceptValue(key);
-
         // Writes answer with acceptKey to client
         connection.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n`+
             `Connection: Upgrade\r\nSec-WebSocket-Accept: ${acceptKey}\r\n\r\n`);
@@ -72,14 +73,16 @@ const wsServer = net.createServer((connection) => {
             }
         }
         else response = message;
-
+        // Constructing the response to a readable message
         let buf = constructReply(response);
-
+        // Sends the message to all the clients
         for(socket of clients){
             if(socket) socket.write(buf);
         }
     }
     });
+    //When a client disconnects by exiting the webpage or refreshes the webpage,
+    //then a message wil be displayed on the server console that the client has disconnected
     connection.on('end', () => {
         for(let i = 0; i < clients.length; i++){
             if(clients[i] === connection){
@@ -142,21 +145,16 @@ function parseMessage(data) {
             result += String.fromCharCode(data[i]);
         }
     }
-
     return result;
 }
 
-/**
- * Method decodes the frames sent by the client
- * %x1 = text frame
- * %x8 = closing connection
- * This server will only deal with text, and closing connection,
- * although binary frames (%x2) would be a good implementation for
- * images, audio and such (bit-stream)
- *
- * @param text consist of the (encoded) frames sent from the client
- * @return null if connection termination frame, and a decoded message if text frame
- */
+//Method decodes the frames sent by the client
+//%x1 = text frame
+//%x8 = closing connection
+//This server will only deal with text, and closing connection, although binary frames (%x2) would be a good implementation for images,
+//audio and such (bit-stream)
+//@param text consist of the (encoded) frames sent from the client
+//@return null if connection termination frame, and a decoded message if text frame
 function constructReply(text) {
     let textByteLength = Buffer.from(text).length;
 
@@ -182,7 +180,7 @@ function constructReply(text) {
     return buffer;
 }
 
-// Don't forget the hashing function described earlier:
+// Generates an accept value to client
 function generateAcceptValue (acceptKey) {
     return crypto
         .createHash('sha1')
@@ -190,6 +188,9 @@ function generateAcceptValue (acceptKey) {
         .digest('base64');
 }
 
+//Checks if the header we get from client to server is correct.
+//True: correct handshake header is correct
+//False: if not
 function checkHeaderFields(headers){
     let connectionReg = /Connection:.+Upgrade.*?\s/i
     let hostReg = /Host:/i
@@ -202,10 +203,8 @@ function checkHeaderFields(headers){
     return false;
 }
 
-/**
- * @param data = buffer
- * @param headerName = name to search for in header-lines
- */
+//function to search trough a header by taking in the header (data) and
+// the name of the searching word (headerName) and collect needed information
 function getHeaderValue(data, headerName) {
     let array = data.toString().split("\r\n");
     for (let line of array) {

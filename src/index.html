@@ -21,16 +21,20 @@
         }
         #message{
             margin-top: 5px;
-            width: 40%;
+            width: 81%;
+            margin-right: 2%;
+            margin-left: 4%;
         }
         #submit{
+            display: inline;
             margin-top: 10px;
             border-radius: 5px;
-            width: 12%;
+            width: 55px;
             height: 30px;
             border: 1px solid transparent;
             cursor: pointer;
-            background: lightblue;
+            background: rgba(0, 150, 243, 0.98);
+            color: white;
         }
         #chat{
             width: 40%;
@@ -43,6 +47,9 @@
             height: 30vh;
             margin: 10px;
         }
+        #message-box{
+            width: 45%;
+        }
     </style>
 </head>
 <body>
@@ -51,8 +58,10 @@
     <form>
         <label for="message">Hey! You have come to a chat program. Feel free to chat with other clients:</label>
         <div id="chat"></div>
+        <div id="message-box">
         <input id="message" type="text">
-        <button id="submit" type="submit">Submit message</button>
+        <button id="submit" type="submit">Submit</button>
+        </div>
     </form>
 </div>
 <script>
